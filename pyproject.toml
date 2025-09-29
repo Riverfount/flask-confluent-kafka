@@ -1,6 +1,6 @@
 [project]
 name = "flask-confluent-kakfa"
-version = "0.1.0"
+version = "0.1.0-a"
 description = "A simple Flask extension for integrating Confluent Kafka."
 authors = [{name = "River", email = "vicente.marcal@gmail.com"}]
 license = {text = "GPL+v3"}
@@ -9,3 +9,7 @@ requires-python = ">=3.13"
 dependencies = [
     "confluent-kafka>=2.11.1",
 ]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
