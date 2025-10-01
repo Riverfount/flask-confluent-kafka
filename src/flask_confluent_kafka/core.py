@@ -1,6 +1,7 @@
 from typing import Any
 
 from confluent_kafka import Consumer, Producer
+import json
 
 
 class FlaskConfluentKafka:
@@ -16,7 +17,7 @@ class FlaskConfluentKafka:
         self.protocol = app.config.get("KAFKA_PROTOCOL", "PLAINTEXT")
         self.mechanism = app.config.get("KAFKA_MECHANISM", "PLAIN")
         self.group_id = app.config.get("KAFKA_GROUP_ID", "default_group")
-        
+
         # Set up Kafka Server configuration
         kafka_config = {
             "bootstrap.servers": self.bootstrap_servers,
@@ -44,12 +45,21 @@ class FlaskConfluentKafka:
         app.extensions["kafka_producer"] = self.producer
         app.extensions["kafka_consumer"] = self.consumer
 
-    def produce(self, topic: str, value: dict[str, Any], key: str = None) -> None:
+    def produce(self, topic: str, value: dict[str, Any] | str, key: str = None) -> None:
         """Send a message to a Kafka topic."""
         if self.producer is None:
             raise RuntimeError("Kafka producer is not initialized.")
-        self.producer.produce(topic, value=value, key=key)
-        self.producer.flush()
+        
+        if isinstance(value, dict):
+            value = json.dumps(value)
+        elif isinstance(value, str):
+            value = value.encode("utf-8")
+
+        try:
+            self.producer.produce(topic, value=value, key=key)
+            self.producer.flush()
+        except Exception as e:
+            raise RuntimeError(f"Failed to produce message: {e}")
 
     def consume(self, topics: list[str], timeout=1.0) -> str:
         """Consume messages from Kafka topics."""
