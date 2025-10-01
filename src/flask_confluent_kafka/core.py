@@ -1,3 +1,5 @@
+from typing import Any
+
 from confluent_kafka import Consumer, Producer
 
 
@@ -37,14 +39,14 @@ class FlaskConfluentKafka:
         app.extensions["kafka_producer"] = self.producer
         app.extensions["kafka_consumer"] = self.consumer
 
-    def send(self, topic, value, key=None):
+    def produce(self, topic: str, value: dict[str, Any], key: str = None) -> None:
         """Send a message to a Kafka topic."""
         if self.producer is None:
             raise RuntimeError("Kafka producer is not initialized.")
         self.producer.produce(topic, value=value, key=key)
         self.producer.flush()
 
-    def consume(self, topics, timeout=1.0):
+    def consume(self, topics: list[str], timeout=1.0) -> str:
         """Consume messages from Kafka topics."""
         if self.consumer is None:
             raise RuntimeError("Kafka consumer is not initialized.")
