@@ -6,8 +6,8 @@ from confluent_kafka import Consumer, Producer
 class FlaskConfluentKafka:
     def __init__(self, app=None):
         self.app = app
-        if app is not None:
-            self.init_app(app)
+        if self.app is not None:
+            self.init_app(self.app)
 
     def init_app(self, app):
         self.bootstrap_servers = app.config.get("KAFKA_SERVER", "localhost:9092")
@@ -16,8 +16,7 @@ class FlaskConfluentKafka:
         self.protocol = app.config.get("KAFKA_PROTOCOL", "PLAINTEXT")
         self.mechanism = app.config.get("KAFKA_MECHANISM", "PLAIN")
         self.group_id = app.config.get("KAFKA_GROUP_ID", "default_group")
-        self.producer = None
-        self.consumer = None
+        
         # Set up Kafka Server configuration
         kafka_config = {
             "bootstrap.servers": self.bootstrap_servers,
@@ -28,10 +27,16 @@ class FlaskConfluentKafka:
         }
 
         # Initialize Kafka Producer
-        self.producer = Producer(kafka_config)
+        try:
+            self.producer = Producer(kafka_config)
+        except Exception as e:
+            raise RuntimeError(f"Failed to create Kafka producer: {e}")
 
         # Initialize Kafka Consumer
-        self.consumer = Consumer({**kafka_config, "group.id": self.group_id, "auto.offset.reset": "earliest"})
+        try:
+            self.consumer = Consumer({**kafka_config, "group.id": self.group_id, "auto.offset.reset": "earliest"})
+        except Exception as e:
+            raise RuntimeError(f"Failed to create Kafka consumer: {e}")
 
         # Store the extension in the app's extensions dictionary
         if not hasattr(app, "extensions"):
