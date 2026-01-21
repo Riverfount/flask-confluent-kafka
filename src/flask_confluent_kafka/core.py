@@ -61,7 +61,7 @@ class FlaskConfluentKafka:
         except Exception as e:
             raise RuntimeError(f"Failed to produce message: {e}")
 
-    def consume(self, topics: list[str], timeout=1.0) -> str:
+    def consume(self, topics: list[str], timeout=1.0) -> str | None:
         """Consume messages from Kafka topics."""
         if self.consumer is None:
             raise RuntimeError("Kafka consumer is not initialized.")
