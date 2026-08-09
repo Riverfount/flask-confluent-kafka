@@ -61,7 +61,7 @@ class FlaskConfluentKafka:
 
         # Store the extension in the app's extensions dictionary
         if not hasattr(app, "extensions"):
-            app.extensions = {}
+            app.extensions = {}  # pragma: no cover
         app.extensions["kafka_producer"] = self.producer
         app.extensions["kafka_consumer"] = self.consumer
 

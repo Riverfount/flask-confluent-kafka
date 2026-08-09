@@ -35,7 +35,13 @@ Then open <http://127.0.0.1:8000>.
 uv run pytest -v
 ```
 
-Coverage tooling and a CI gate (target: 90%+) are tracked in [#9](https://github.com/Riverfount/flask-confluent-kafka/issues/9).
+CI runs the full coverage-gated suite on every pull request against `main`:
+
+```bash
+uv run pytest --cov=flask_confluent_kafka --cov-report=term-missing --cov-fail-under=90
+```
+
+`main` is protected — both `ruff check` and the coverage-gated test suite must pass before a pull request can be merged, including for repo admins.
 
 ## Making changes
 
