@@ -47,11 +47,17 @@ class FlaskConfluentKafka:
         # Set up Kafka Server configuration
         kafka_config = {
             "bootstrap.servers": self.bootstrap_servers,
-            "sasl.username": self.username,
-            "sasl.password": self.password,
             "security.protocol": self.protocol,
-            "sasl.mechanism": self.mechanism,
         }
+
+        # sasl.* keys only have effect when security.protocol enables SASL
+        # (SASL_PLAINTEXT / SASL_SSL) -- omit them otherwise so the config
+        # handed to Producer/Consumer doesn't imply SASL auth that isn't
+        # actually in effect.
+        if self.protocol.upper().startswith("SASL_"):
+            kafka_config["sasl.username"] = self.username
+            kafka_config["sasl.password"] = self.password
+            kafka_config["sasl.mechanism"] = self.mechanism
 
         # Initialize Kafka Producer
         try:
