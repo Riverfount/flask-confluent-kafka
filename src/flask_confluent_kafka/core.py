@@ -1,9 +1,12 @@
 import atexit
 import json
+import logging
 from typing import Any
 
 from confluent_kafka import Consumer, KafkaException, Producer
 from flask import current_app, has_app_context
+
+logger = logging.getLogger(__name__)
 
 _DEFAULT_SHUTDOWN_FLUSH_TIMEOUT = 10.0
 
@@ -119,6 +122,13 @@ class FlaskConfluentKafka:
         Subscribes only when the requested topics differ from what this
         app's consumer is already subscribed to, so repeated calls in a
         consume loop don't trigger a rebalance on every poll.
+
+        A msg.error() is only raised as a RuntimeError when librdkafka has
+        flagged it fatal (error.fatal() is True) -- the client itself is
+        broken and can't recover. Any other error -- including purely
+        informational ones like KafkaError._PARTITION_EOF, and
+        transient/retriable errors librdkafka can recover from on its own --
+        is logged and treated as "no message this poll", returning None.
         """
         consumer = self._get_client("kafka_consumer")
         app = self._resolve_app()
@@ -131,6 +141,12 @@ class FlaskConfluentKafka:
         msg = consumer.poll(timeout)
         if msg is None:
             return None
-        if msg.error():
-            raise RuntimeError(f"Consumer error: {msg.error()}")
+
+        error = msg.error()
+        if error is not None:
+            if error.fatal():
+                raise RuntimeError(f"Consumer error: {error}")
+            logger.warning("Non-fatal Kafka consumer error: %s", error)
+            return None
+
         return msg.value().decode("utf-8")

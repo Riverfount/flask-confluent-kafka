@@ -1,7 +1,7 @@
 from unittest.mock import MagicMock
 
 import pytest
-from confluent_kafka import KafkaException
+from confluent_kafka import KafkaError, KafkaException
 
 from flask_confluent_kafka import FlaskConfluentKafka
 
@@ -189,3 +189,49 @@ def test_atexit_shutdown_hook_still_closes_consumer_if_flush_raises(app, mock_at
         func(*args, **kwargs)
 
     consumer.close.assert_called_once()
+
+
+def test_consume_raises_for_a_fatal_consumer_error(app):
+    kafka = FlaskConfluentKafka(app)
+    consumer = app.extensions["kafka_consumer"]
+    msg = MagicMock()
+    msg.error.return_value = KafkaError(KafkaError._ALL_BROKERS_DOWN, fatal=True)
+    consumer.poll.return_value = msg
+
+    with pytest.raises(RuntimeError, match="Consumer error"):
+        kafka.consume(["topic"])
+
+
+def test_consume_returns_none_for_a_non_fatal_consumer_error(app):
+    kafka = FlaskConfluentKafka(app)
+    consumer = app.extensions["kafka_consumer"]
+    msg = MagicMock()
+    msg.error.return_value = KafkaError(KafkaError._PARTITION_EOF, fatal=False)
+    consumer.poll.return_value = msg
+
+    assert kafka.consume(["topic"]) is None
+
+
+def test_consume_does_not_decode_a_message_with_a_non_fatal_error(app):
+    kafka = FlaskConfluentKafka(app)
+    consumer = app.extensions["kafka_consumer"]
+    msg = MagicMock()
+    msg.error.return_value = KafkaError(KafkaError._PARTITION_EOF, fatal=False)
+    consumer.poll.return_value = msg
+
+    kafka.consume(["topic"])
+
+    msg.value.assert_not_called()
+
+
+def test_consume_logs_a_warning_for_a_non_fatal_consumer_error(app, caplog):
+    kafka = FlaskConfluentKafka(app)
+    consumer = app.extensions["kafka_consumer"]
+    msg = MagicMock()
+    msg.error.return_value = KafkaError(KafkaError._PARTITION_EOF, fatal=False)
+    consumer.poll.return_value = msg
+
+    with caplog.at_level("WARNING", logger="flask_confluent_kafka.core"):
+        kafka.consume(["topic"])
+
+    assert "Non-fatal Kafka consumer error" in caplog.text

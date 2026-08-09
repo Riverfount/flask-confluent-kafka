@@ -83,7 +83,7 @@ Queues a message for asynchronous delivery to `topic` (`dict` values are JSON-se
 
 ### `consume(topics: list[str], timeout: float = 1.0) -> str | None`
 
-Polls for a single message on `topics`, returning its decoded value, or `None` if nothing arrived within `timeout` seconds. Raises `RuntimeError` on a consumer error. Subscribes the consumer to `topics` the first time it's called (or whenever the requested topic set changes), not on every call — so a `while True: consume(...)` loop doesn't trigger a consumer-group rebalance on each poll.
+Polls for a single message on `topics`, returning its decoded value, or `None` if nothing arrived within `timeout` seconds — or if a non-fatal consumer error occurred (e.g. `KafkaError._PARTITION_EOF`, or any other error librdkafka doesn't flag as fatal; logged as a warning). Raises `RuntimeError` only for a fatal consumer error (`KafkaError.fatal()` is `True`), since that signals the client itself is broken and can't recover. Subscribes the consumer to `topics` the first time it's called (or whenever the requested topic set changes), not on every call — so a `while True: consume(...)` loop doesn't trigger a consumer-group rebalance on each poll.
 
 ## Shutdown
 
