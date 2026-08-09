@@ -29,10 +29,18 @@ uv run mkdocs serve
 
 Then open <http://127.0.0.1:8000>.
 
+## Running tests
+
+```bash
+uv run pytest -v
+```
+
+Coverage tooling and a CI gate (target: 90%+) are tracked in [#9](https://github.com/Riverfount/flask-confluent-kafka/issues/9).
+
 ## Making changes
 
 1. Check the [issue tracker](https://github.com/Riverfount/flask-confluent-kafka/issues) for existing issues related to what you want to work on, or open a new one for anything not tracked yet.
 2. Create a branch off `main`.
 3. Make your changes, keeping them focused on the issue at hand.
-4. Make sure `ruff check .` passes (and tests, once the suite exists).
+4. Make sure `ruff check .` and `uv run pytest` pass.
 5. Open a pull request referencing the issue it closes (e.g. `Closes #1`).

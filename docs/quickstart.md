@@ -30,4 +30,6 @@ def create_app():
     return app
 ```
 
+A single `FlaskConfluentKafka()` instance can be `init_app()`'d against more than one app. Calls to `produce()`/`consume()` made while a given app's context is active always use that app's own producer/consumer — see [API Reference](api.md) for how client resolution works.
+
 See the [Configuration](configuration.md) reference for every available `app.config` key, and the [API Reference](api.md) for the full method signatures.

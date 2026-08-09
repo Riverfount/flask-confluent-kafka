@@ -75,6 +75,8 @@ Creates the extension. If `app` is given, calls `init_app(app)` immediately; oth
 
 Reads the config keys above, creates a `confluent_kafka.Producer` and `confluent_kafka.Consumer`, and stores them in `app.extensions["kafka_producer"]` / `app.extensions["kafka_consumer"]`.
 
+`produce()`/`consume()` resolve their client via Flask's `current_app` whenever an app context is active, falling back to the app passed to the constructor otherwise. This makes it safe to share a single `FlaskConfluentKafka()` instance across multiple apps — calls made under a given app's context always use that app's producer/consumer.
+
 ### `produce(topic: str, value: dict | str, key: str | None = None) -> None`
 
 Sends a message to `topic`. `dict` values are JSON-serialized; `str` values are UTF-8 encoded. Raises `RuntimeError` on failure.
@@ -85,7 +87,7 @@ Subscribes to `topics` and polls for a single message, returning its decoded val
 
 ## Known limitations
 
-This project is early-stage. See the [issue tracker](https://github.com/Riverfount/flask-confluent-kafka/issues) for known bugs and planned improvements — notably around application-factory support, consumer/producer lifecycle management, and support for multiple producers/consumers per app.
+This project is early-stage. See the [issue tracker](https://github.com/Riverfount/flask-confluent-kafka/issues) for known bugs and planned improvements — notably around consumer/producer lifecycle management and support for multiple producers/consumers per app.
 
 ## Contributing
 
