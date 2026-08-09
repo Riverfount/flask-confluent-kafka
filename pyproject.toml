@@ -18,6 +18,7 @@ build-backend = "hatchling.build"
 [dependency-groups]
 dev = [
     "pytest>=9.1.1",
+    "pytest-cov>=7.1.0",
     "ruff>=0.14.13",
 ]
 docs = [
@@ -27,3 +28,10 @@ docs = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.coverage.run]
+source = ["src/flask_confluent_kafka"]
+
+[tool.coverage.report]
+fail_under = 90
+show_missing = true

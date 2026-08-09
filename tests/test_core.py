@@ -1,3 +1,4 @@
+import json
 from unittest.mock import MagicMock
 
 import pytest
@@ -30,6 +31,38 @@ def test_produce_does_not_flush_synchronously(app):
     kafka = FlaskConfluentKafka(app)
     kafka.produce("topic", "value")
     app.extensions["kafka_producer"].flush.assert_not_called()
+
+
+def test_produce_json_serializes_a_dict_value(app):
+    kafka = FlaskConfluentKafka(app)
+
+    kafka.produce("topic", {"hello": "world"})
+
+    producer = app.extensions["kafka_producer"]
+    assert producer.produce.call_args.kwargs["value"] == json.dumps({"hello": "world"})
+    producer.poll.assert_called_once_with(0)
+
+
+def test_produce_wraps_a_kafka_exception_in_a_runtime_error(app):
+    kafka = FlaskConfluentKafka(app)
+    producer = app.extensions["kafka_producer"]
+    producer.produce.side_effect = KafkaException("boom")
+
+    with pytest.raises(RuntimeError, match="Failed to produce message"):
+        kafka.produce("topic", "value")
+
+    producer.poll.assert_not_called()
+
+
+def test_produce_wraps_a_buffer_error_in_a_runtime_error(app):
+    kafka = FlaskConfluentKafka(app)
+    producer = app.extensions["kafka_producer"]
+    producer.produce.side_effect = BufferError("queue full")
+
+    with pytest.raises(RuntimeError, match="Failed to produce message"):
+        kafka.produce("topic", "value")
+
+    producer.poll.assert_not_called()
 
 
 def test_consume_falls_back_to_constructor_app_without_a_context(app):
@@ -167,6 +200,22 @@ def test_init_app_registers_atexit_hook_bound_to_each_apps_own_clients(make_app,
     assert args_a == (app_a.extensions["kafka_producer"], app_a.extensions["kafka_consumer"])
     assert args_b == (app_b.extensions["kafka_producer"], app_b.extensions["kafka_consumer"])
     assert args_a != args_b
+
+
+def test_init_app_wraps_a_kafka_exception_in_a_runtime_error_for_the_producer(app, mock_kafka_clients):
+    producer_cls, _consumer_cls = mock_kafka_clients
+    producer_cls.side_effect = KafkaException("boom")
+
+    with pytest.raises(RuntimeError, match="Failed to create Kafka producer"):
+        FlaskConfluentKafka(app)
+
+
+def test_init_app_wraps_a_kafka_exception_in_a_runtime_error_for_the_consumer(app, mock_kafka_clients):
+    _producer_cls, consumer_cls = mock_kafka_clients
+    consumer_cls.side_effect = KafkaException("boom")
+
+    with pytest.raises(RuntimeError, match="Failed to create Kafka consumer"):
+        FlaskConfluentKafka(app)
 
 
 def test_atexit_shutdown_hook_flushes_producer_and_closes_consumer(app, mock_atexit_register):
