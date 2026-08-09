@@ -22,7 +22,7 @@ Next: [Quickstart](quickstart.md).
 
 ## Known limitations
 
-This project is early-stage. See the [issue tracker](https://github.com/Riverfount/flask-confluent-kafka/issues) for known bugs and planned improvements — notably around application-factory support, consumer/producer lifecycle management, and support for multiple producers/consumers per app.
+This project is early-stage. See the [issue tracker](https://github.com/Riverfount/flask-confluent-kafka/issues) for known bugs and planned improvements — notably around consumer/producer lifecycle management and support for multiple producers/consumers per app.
 
 ## License
 
