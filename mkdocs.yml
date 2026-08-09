@@ -1,0 +1,37 @@
+site_name: flask-confluent-kafka
+site_description: A simple Flask extension for integrating Confluent Kafka producers and consumers.
+site_url: https://riverfount.github.io/flask-confluent-kafka/
+repo_url: https://github.com/Riverfount/flask-confluent-kafka
+repo_name: Riverfount/flask-confluent-kafka
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - content.code.copy
+
+nav:
+  - Home: index.md
+  - Quickstart: quickstart.md
+  - Configuration: configuration.md
+  - API Reference: api.md
+  - Contributing: contributing.md
+
+markdown_extensions:
+  - admonition
+  - tables
+  - pymdownx.highlight
+  - pymdownx.superfences

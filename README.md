@@ -2,6 +2,8 @@
 
 A simple Flask extension for integrating [confluent-kafka](https://github.com/confluentinc/confluent-kafka-python) producers and consumers into a Flask application.
 
+Full documentation: <https://riverfount.github.io/flask-confluent-kafka/>
+
 ## Features
 
 - Configures a Kafka `Producer` and `Consumer` straight from your Flask app config.
