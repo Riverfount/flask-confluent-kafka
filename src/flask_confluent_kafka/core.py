@@ -12,19 +12,26 @@ _DEFAULT_SHUTDOWN_FLUSH_TIMEOUT = 10.0
 
 
 def _shutdown_kafka_clients(
-    producer: Producer, consumer: Consumer, flush_timeout: float = _DEFAULT_SHUTDOWN_FLUSH_TIMEOUT
+    producer: Producer | None = None,
+    consumer: Consumer | None = None,
+    flush_timeout: float = _DEFAULT_SHUTDOWN_FLUSH_TIMEOUT,
 ) -> None:
-    """Flush a producer and close a consumer on process shutdown.
+    """Flush a producer and/or close a consumer on process shutdown.
 
     Takes the clients as plain arguments (bound via atexit.register's own
     *args at registration time) rather than reading self.producer/consumer,
-    so each app's hook keeps closing that app's own clients even after a
-    later init_app() call for a different app overwrites self's attributes.
+    so each hook keeps acting on the specific client(s) it was registered
+    for. producer/consumer are independently optional so one function backs
+    three registration paths: init_app() passes both (the default pair),
+    while add_producer()/add_consumer() each pass only the one client they
+    created, leaving the other None.
     """
     try:
-        producer.flush(flush_timeout)
+        if producer is not None:
+            producer.flush(flush_timeout)
     finally:
-        consumer.close()
+        if consumer is not None:
+            consumer.close()
 
 
 class FlaskConfluentKafka:
@@ -37,27 +44,8 @@ class FlaskConfluentKafka:
 
     def init_app(self, app):
         self.app = app
-        self.bootstrap_servers = app.config.get("KAFKA_SERVER", "localhost:9092")
-        self.username = app.config.get("KAFKA_USERNAME", "")
-        self.password = app.config.get("KAFKA_PASSWORD", "")
-        self.protocol = app.config.get("KAFKA_PROTOCOL", "PLAINTEXT")
-        self.mechanism = app.config.get("KAFKA_MECHANISM", "PLAIN")
-        self.group_id = app.config.get("KAFKA_GROUP_ID", "default_group")
-
-        # Set up Kafka Server configuration
-        kafka_config = {
-            "bootstrap.servers": self.bootstrap_servers,
-            "security.protocol": self.protocol,
-        }
-
-        # sasl.* keys only have effect when security.protocol enables SASL
-        # (SASL_PLAINTEXT / SASL_SSL) -- omit them otherwise so the config
-        # handed to Producer/Consumer doesn't imply SASL auth that isn't
-        # actually in effect.
-        if self.protocol.upper().startswith("SASL_"):
-            kafka_config["sasl.username"] = self.username
-            kafka_config["sasl.password"] = self.password
-            kafka_config["sasl.mechanism"] = self.mechanism
+        group_id = app.config.get("KAFKA_GROUP_ID", "default_group")
+        kafka_config = self._build_kafka_config(app)
 
         # Initialize Kafka Producer
         try:
@@ -67,7 +55,7 @@ class FlaskConfluentKafka:
 
         # Initialize Kafka Consumer
         try:
-            self.consumer = Consumer({**kafka_config, "group.id": self.group_id, "auto.offset.reset": "earliest"})
+            self.consumer = Consumer({**kafka_config, "group.id": group_id, "auto.offset.reset": "earliest"})
         except KafkaException as e:
             raise RuntimeError(f"Failed to create Kafka consumer: {e}")
 
@@ -79,6 +67,29 @@ class FlaskConfluentKafka:
 
         atexit.register(_shutdown_kafka_clients, self.producer, self.consumer)
 
+    def _build_kafka_config(self, app) -> dict[str, Any]:
+        """Build the base client config (bootstrap.servers, security.protocol,
+        and conditionally sasl.*) from app.config.
+
+        Takes app explicitly rather than reading self, so it's correct for
+        whichever app is passed in -- reused by init_app() and by
+        add_producer()/add_consumer() for whatever app _resolve_app()
+        currently yields, not necessarily the one init_app() was last
+        called for.
+        """
+        protocol = app.config.get("KAFKA_PROTOCOL", "PLAINTEXT")
+        kafka_config: dict[str, Any] = {
+            "bootstrap.servers": app.config.get("KAFKA_SERVER", "localhost:9092"),
+            "security.protocol": protocol,
+        }
+
+        if protocol.upper().startswith("SASL_"):
+            kafka_config["sasl.username"] = app.config.get("KAFKA_USERNAME", "")
+            kafka_config["sasl.password"] = app.config.get("KAFKA_PASSWORD", "")
+            kafka_config["sasl.mechanism"] = app.config.get("KAFKA_MECHANISM", "PLAIN")
+
+        return kafka_config
+
     def _resolve_app(self):
         """Resolve the active app: current_app takes priority over the
         constructor's app so calls made while a given app's context is
@@ -89,6 +100,20 @@ class FlaskConfluentKafka:
             return current_app
         return self.app
 
+    def _resolve_initialized_app(self):
+        """Resolve the active app (see _resolve_app) and confirm it's
+        already been init_app()'d.
+
+        add_producer()/add_consumer() register additional named clients for
+        an app already using this extension -- they don't stand in for
+        init_app(). Also rejects an active context for some other,
+        unrelated Flask app that was never init_app()'d with this instance.
+        """
+        app = self._resolve_app()
+        if app is None or "kafka_producer" not in app.extensions:
+            raise RuntimeError("Kafka extension is not initialized for this app; call init_app() first.")
+        return app
+
     def _get_client(self, extension_key: str) -> Producer | Consumer:
         """Resolve the producer/consumer for the active app (see `_resolve_app`)."""
         app = self._resolve_app()
@@ -98,6 +123,89 @@ class FlaskConfluentKafka:
             label = extension_key.removeprefix("kafka_")
             raise RuntimeError(f"Kafka {label} is not initialized.")
         return client
+
+    def _get_named_client(self, extension_key: str, label: str, name: str) -> Producer | Consumer:
+        """Resolve a named producer/consumer for the active app (see `_resolve_app`)."""
+        app = self._resolve_app()
+        registry = app.extensions.get(extension_key) if app is not None else None
+        client = registry.get(name) if registry is not None else None
+
+        if client is None:
+            raise RuntimeError(f"Kafka {label} '{name}' is not registered for this app.")
+        return client
+
+    def add_producer(self, name: str, config_overrides: dict[str, Any] | None = None) -> Producer:
+        """Create and register an additional named Producer for the active
+        app, independent of the default one created by init_app().
+
+        Uses the same config init_app() builds from app.config, with
+        config_overrides layered on top (can override anything, including
+        bootstrap.servers, e.g. to point this producer at a different
+        cluster). Stores the result in app.extensions["kafka_producers"][name]
+        and registers its own atexit shutdown hook that flushes it.
+
+        Raises RuntimeError if this app hasn't been init_app()'d yet, if
+        `name` is already registered, or if Producer construction fails.
+        """
+        app = self._resolve_initialized_app()
+        producers = app.extensions.setdefault("kafka_producers", {})
+
+        if name in producers:
+            raise RuntimeError(f"Producer '{name}' is already registered for this app.")
+
+        producer_config = {**self._build_kafka_config(app), **(config_overrides or {})}
+        try:
+            producer = Producer(producer_config)
+        except KafkaException as e:
+            raise RuntimeError(f"Failed to create Kafka producer '{name}': {e}")
+
+        producers[name] = producer
+        atexit.register(_shutdown_kafka_clients, producer, None)
+        return producer
+
+    def add_consumer(self, name: str, *, group_id: str, config_overrides: dict[str, Any] | None = None) -> Consumer:
+        """Create and register an additional named Consumer for the active
+        app, independent of the default one created by init_app().
+
+        group_id is required, with no fallback to KAFKA_GROUP_ID -- a second
+        consumer silently sharing the default group id would just join that
+        consumer group and compete for partitions with it, instead of
+        running independently. Uses the same config as add_producer(), plus
+        group.id=group_id and auto.offset.reset="earliest", with
+        config_overrides layered on top of all of that. Stores the result
+        in app.extensions["kafka_consumers"][name] and registers its own
+        atexit shutdown hook that closes it.
+
+        Raises RuntimeError under the same conditions as add_producer().
+        """
+        app = self._resolve_initialized_app()
+        consumers = app.extensions.setdefault("kafka_consumers", {})
+
+        if name in consumers:
+            raise RuntimeError(f"Consumer '{name}' is already registered for this app.")
+
+        consumer_config = {
+            **self._build_kafka_config(app),
+            "group.id": group_id,
+            "auto.offset.reset": "earliest",
+            **(config_overrides or {}),
+        }
+        try:
+            consumer = Consumer(consumer_config)
+        except KafkaException as e:
+            raise RuntimeError(f"Failed to create Kafka consumer '{name}': {e}")
+
+        consumers[name] = consumer
+        atexit.register(_shutdown_kafka_clients, None, consumer)
+        return consumer
+
+    def get_producer(self, name: str) -> Producer:
+        """Return the named Producer registered via add_producer()."""
+        return self._get_named_client("kafka_producers", "producer", name)
+
+    def get_consumer(self, name: str) -> Consumer:
+        """Return the named Consumer registered via add_consumer()."""
+        return self._get_named_client("kafka_consumers", "consumer", name)
 
     def produce(self, topic: str, value: dict[str, Any] | str, key: str | None = None) -> None:
         """Send a message to a Kafka topic.

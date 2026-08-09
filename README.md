@@ -9,6 +9,7 @@ Full documentation: <https://riverfount.github.io/flask-confluent-kafka/>
 - Configures a Kafka `Producer` and `Consumer` straight from your Flask app config.
 - Optional SASL authentication support (`security.protocol` / `sasl.mechanism`).
 - Small helper API to produce (`dict`/`str` payloads, auto-serialized) and consume messages without dealing with `confluent-kafka` directly.
+- Register additional named producers/consumers (`add_producer()`/`add_consumer()`), independent of the default pair.
 
 ## Installation
 
@@ -52,6 +53,23 @@ def create_app():
     return app
 ```
 
+### Multiple producers/consumers
+
+Register additional named producers/consumers, independent of the default pair:
+
+```python
+orders_producer = kafka.add_producer("orders")
+orders_consumer = kafka.add_consumer("orders", group_id="orders-processor")
+
+orders_producer.produce("orders", value=b'{"id": 1}')
+orders_producer.poll(0)
+
+orders_consumer.subscribe(["orders"])
+msg = orders_consumer.poll(1.0)
+```
+
+Fetch a previously registered client by name from anywhere else in the app with `kafka.get_producer("orders")` / `kafka.get_consumer("orders")`. These are plain `confluent_kafka.Producer`/`Consumer` objects, so unlike `produce()`/`consume()` there's no `dict`-to-JSON auto-serialization, subscribe-once tracking, or non-fatal-error handling — use the raw client API directly. See [API](#api) below for the full reference.
+
 ## Configuration
 
 All configuration is read from `app.config` in `init_app`:
@@ -75,7 +93,7 @@ Creates the extension. If `app` is given, calls `init_app(app)` immediately; oth
 
 ### `init_app(app)`
 
-Reads the config keys above, creates a `confluent_kafka.Producer` and `confluent_kafka.Consumer`, and stores them in `app.extensions["kafka_producer"]` / `app.extensions["kafka_consumer"]`.
+Reads the config keys above, creates a `confluent_kafka.Producer` and `confluent_kafka.Consumer` — the **default pair** — and stores them in `app.extensions["kafka_producer"]` / `app.extensions["kafka_consumer"]`. For additional producers/consumers, see `add_producer()`/`add_consumer()` below.
 
 `produce()`/`consume()` resolve their client via Flask's `current_app` whenever an app context is active, falling back to the app passed to the constructor otherwise. This makes it safe to share a single `FlaskConfluentKafka()` instance across multiple apps — calls made under a given app's context always use that app's producer/consumer.
 
@@ -87,13 +105,27 @@ Queues a message for asynchronous delivery to `topic` (`dict` values are JSON-se
 
 Polls for a single message on `topics`, returning its decoded value, or `None` if nothing arrived within `timeout` seconds — or if a non-fatal consumer error occurred (e.g. `KafkaError._PARTITION_EOF`, or any other error librdkafka doesn't flag as fatal; logged as a warning). Raises `RuntimeError` only for a fatal consumer error (`KafkaError.fatal()` is `True`), since that signals the client itself is broken and can't recover. Subscribes the consumer to `topics` the first time it's called (or whenever the requested topic set changes), not on every call — so a `while True: consume(...)` loop doesn't trigger a consumer-group rebalance on each poll.
 
+### `add_producer(name: str, config_overrides: dict[str, Any] | None = None) -> Producer`
+
+Creates and registers an additional named `confluent_kafka.Producer`, independent of the default one created by `init_app()`. Uses the same connection config `init_app()` builds from `app.config` (`bootstrap.servers`, `security.protocol`, and `sasl.*` when applicable), with `config_overrides` layered on top — so `config_overrides` can override anything, including `bootstrap.servers` itself, e.g. to point this producer at a different cluster. Stores the result in `app.extensions["kafka_producers"][name]` and registers its own `atexit` shutdown hook that flushes it on process exit. Raises `RuntimeError` if this instance hasn't been `init_app()`'d for the active app yet, if `name` is already registered, or if `Producer` construction itself fails.
+
+### `add_consumer(name: str, *, group_id: str, config_overrides: dict[str, Any] | None = None) -> Consumer`
+
+Creates and registers an additional named `confluent_kafka.Consumer`, independent of the default one created by `init_app()`. `group_id` is required — unlike the default consumer, it never falls back to `KAFKA_GROUP_ID`, since silently sharing a group id with another consumer would just make it join that consumer group and compete for partitions with it instead of running independently. Uses the same connection config as `add_producer()`, plus `group.id=group_id` and `auto.offset.reset="earliest"`, with `config_overrides` layered on top of all of that. Stores the result in `app.extensions["kafka_consumers"][name]` and registers its own `atexit` shutdown hook that closes it on process exit. Raises `RuntimeError` under the same conditions as `add_producer()`.
+
+### `get_producer(name: str) -> Producer` / `get_consumer(name: str) -> Consumer`
+
+Look up a producer/consumer previously registered with `add_producer()`/`add_consumer()` for the active app. Raises `RuntimeError` if none is registered under `name`.
+
 ## Shutdown
 
 `init_app()` registers an [`atexit`](https://docs.python.org/3/library/atexit.html) hook per app that flushes its producer (bounded by a 10 second timeout) and closes its consumer when the Python process exits. This is intentionally not wired to Flask's `app.teardown_appcontext()` — that fires after every request, not at process shutdown, which would tear down the producer/consumer after the very first request instead of once at the end.
 
+`add_producer()`/`add_consumer()` each register their own `atexit` hook the same way, scoped to just the one client they created.
+
 ## Known limitations
 
-This project is early-stage. See the [issue tracker](https://github.com/Riverfount/flask-confluent-kafka/issues) for known bugs and planned improvements — notably around support for multiple producers/consumers per app.
+This project is early-stage. See the [issue tracker](https://github.com/Riverfount/flask-confluent-kafka/issues) for known bugs and planned improvements.
 
 ## Contributing
 
