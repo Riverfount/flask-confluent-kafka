@@ -49,19 +49,20 @@ class FlaskConfluentKafka:
         app.extensions["kafka_producer"] = self.producer
         app.extensions["kafka_consumer"] = self.consumer
 
-    def _get_client(self, extension_key: str) -> Producer | Consumer:
-        """Resolve the producer/consumer for the active app.
-
-        current_app takes priority over the constructor's app so calls made
-        while a given app's context is active never leak another app's
-        client, when this instance is shared across multiple apps.
+    def _resolve_app(self):
+        """Resolve the active app: current_app takes priority over the
+        constructor's app so calls made while a given app's context is
+        active never leak another app's state, when this instance is
+        shared across multiple apps.
         """
         if has_app_context():
-            client = current_app.extensions.get(extension_key)
-        elif self.app is not None:
-            client = self.app.extensions.get(extension_key)
-        else:
-            client = None
+            return current_app
+        return self.app
+
+    def _get_client(self, extension_key: str) -> Producer | Consumer:
+        """Resolve the producer/consumer for the active app (see `_resolve_app`)."""
+        app = self._resolve_app()
+        client = app.extensions.get(extension_key) if app is not None else None
 
         if client is None:
             label = extension_key.removeprefix("kafka_")
@@ -84,9 +85,20 @@ class FlaskConfluentKafka:
             raise RuntimeError(f"Failed to produce message: {e}")
 
     def consume(self, topics: list[str], timeout=1.0) -> str | None:
-        """Consume messages from Kafka topics."""
+        """Consume messages from Kafka topics.
+
+        Subscribes only when the requested topics differ from what this
+        app's consumer is already subscribed to, so repeated calls in a
+        consume loop don't trigger a rebalance on every poll.
+        """
         consumer = self._get_client("kafka_consumer")
-        consumer.subscribe(topics)
+        app = self._resolve_app()
+
+        requested_topics = frozenset(topics)
+        if app.extensions.get("kafka_subscribed_topics") != requested_topics:
+            consumer.subscribe(topics)
+            app.extensions["kafka_subscribed_topics"] = requested_topics
+
         msg = consumer.poll(timeout)
         if msg is None:
             return None

@@ -24,4 +24,4 @@ Sends a message to `topic`. `dict` values are JSON-serialized; `str` values are 
 
 ## `consume(topics: list[str], timeout: float = 1.0) -> str | None`
 
-Subscribes to `topics` and polls for a single message, returning its decoded value, or `None` if nothing arrived within `timeout` seconds. Raises `RuntimeError` on a consumer error.
+Polls for a single message on `topics`, returning its decoded value, or `None` if nothing arrived within `timeout` seconds. Raises `RuntimeError` on a consumer error. Subscribes the consumer to `topics` the first time it's called (or whenever the requested topic set changes), not on every call — so a `while True: consume(...)` loop doesn't trigger a consumer-group rebalance on each poll.
