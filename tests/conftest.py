@@ -14,6 +14,24 @@ def mock_kafka_clients(monkeypatch):
 
 
 @pytest.fixture
+def mock_atexit_register(monkeypatch):
+    """Capture atexit.register(...) calls instead of actually registering them.
+
+    core.py does `import atexit`, so `flask_confluent_kafka.core.atexit` is
+    the same object as the real atexit module -- patching this attribute
+    patches the real atexit.register for the test's duration.
+    """
+    registered = []
+
+    def _register(func, *args, **kwargs):
+        registered.append((func, args, kwargs))
+        return func
+
+    monkeypatch.setattr("flask_confluent_kafka.core.atexit.register", _register)
+    return registered
+
+
+@pytest.fixture
 def make_app(mock_kafka_clients):
     def _make_app(name: str = "test-app") -> Flask:
         app = Flask(name)

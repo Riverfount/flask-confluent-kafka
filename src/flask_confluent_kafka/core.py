@@ -1,8 +1,27 @@
+import atexit
 import json
 from typing import Any
 
 from confluent_kafka import Consumer, KafkaException, Producer
 from flask import current_app, has_app_context
+
+_DEFAULT_SHUTDOWN_FLUSH_TIMEOUT = 10.0
+
+
+def _shutdown_kafka_clients(
+    producer: Producer, consumer: Consumer, flush_timeout: float = _DEFAULT_SHUTDOWN_FLUSH_TIMEOUT
+) -> None:
+    """Flush a producer and close a consumer on process shutdown.
+
+    Takes the clients as plain arguments (bound via atexit.register's own
+    *args at registration time) rather than reading self.producer/consumer,
+    so each app's hook keeps closing that app's own clients even after a
+    later init_app() call for a different app overwrites self's attributes.
+    """
+    try:
+        producer.flush(flush_timeout)
+    finally:
+        consumer.close()
 
 
 class FlaskConfluentKafka:
@@ -49,6 +68,8 @@ class FlaskConfluentKafka:
         app.extensions["kafka_producer"] = self.producer
         app.extensions["kafka_consumer"] = self.consumer
 
+        atexit.register(_shutdown_kafka_clients, self.producer, self.consumer)
+
     def _resolve_app(self):
         """Resolve the active app: current_app takes priority over the
         constructor's app so calls made while a given app's context is
@@ -70,7 +91,15 @@ class FlaskConfluentKafka:
         return client
 
     def produce(self, topic: str, value: dict[str, Any] | str, key: str | None = None) -> None:
-        """Send a message to a Kafka topic."""
+        """Send a message to a Kafka topic.
+
+        Queues the message and polls once, non-blocking, to serve any
+        already-completed delivery callbacks -- this does not wait for
+        broker acknowledgment. BufferError/KafkaException raised by produce()
+        itself (e.g. local queue full) still raise RuntimeError; broker-side
+        delivery failures are not surfaced here. Call flush() on
+        app.extensions["kafka_producer"] directly for a delivery guarantee.
+        """
         producer = self._get_client("kafka_producer")
 
         if isinstance(value, dict):
@@ -80,7 +109,7 @@ class FlaskConfluentKafka:
 
         try:
             producer.produce(topic, value=value, key=key)
-            producer.flush()
+            producer.poll(0)
         except (BufferError, KafkaException) as e:
             raise RuntimeError(f"Failed to produce message: {e}")
 

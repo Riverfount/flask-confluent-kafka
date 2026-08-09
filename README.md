@@ -79,15 +79,19 @@ Reads the config keys above, creates a `confluent_kafka.Producer` and `confluent
 
 ### `produce(topic: str, value: dict | str, key: str | None = None) -> None`
 
-Sends a message to `topic`. `dict` values are JSON-serialized; `str` values are UTF-8 encoded. Raises `RuntimeError` on failure.
+Queues a message for asynchronous delivery to `topic` (`dict` values are JSON-serialized; `str` values are UTF-8 encoded) and polls once, non-blocking, to serve any already-completed delivery callbacks. This doesn't wait for broker acknowledgment — call `flush()` on `app.extensions["kafka_producer"]` directly for a synchronous delivery guarantee. Raises `RuntimeError` if the producer isn't initialized, or if `produce()` itself fails (e.g. local queue full); broker-side delivery failures aren't surfaced here.
 
 ### `consume(topics: list[str], timeout: float = 1.0) -> str | None`
 
 Polls for a single message on `topics`, returning its decoded value, or `None` if nothing arrived within `timeout` seconds. Raises `RuntimeError` on a consumer error. Subscribes the consumer to `topics` the first time it's called (or whenever the requested topic set changes), not on every call — so a `while True: consume(...)` loop doesn't trigger a consumer-group rebalance on each poll.
 
+## Shutdown
+
+`init_app()` registers an [`atexit`](https://docs.python.org/3/library/atexit.html) hook per app that flushes its producer (bounded by a 10 second timeout) and closes its consumer when the Python process exits. This is intentionally not wired to Flask's `app.teardown_appcontext()` — that fires after every request, not at process shutdown, which would tear down the producer/consumer after the very first request instead of once at the end.
+
 ## Known limitations
 
-This project is early-stage. See the [issue tracker](https://github.com/Riverfount/flask-confluent-kafka/issues) for known bugs and planned improvements — notably around consumer/producer lifecycle management and support for multiple producers/consumers per app.
+This project is early-stage. See the [issue tracker](https://github.com/Riverfount/flask-confluent-kafka/issues) for known bugs and planned improvements — notably around support for multiple producers/consumers per app.
 
 ## Contributing
 
