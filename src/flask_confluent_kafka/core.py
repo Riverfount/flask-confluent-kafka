@@ -1,7 +1,7 @@
+import json
 from typing import Any
 
-from confluent_kafka import Consumer, Producer
-import json
+from confluent_kafka import Consumer, KafkaException, Producer
 
 
 class FlaskConfluentKafka:
@@ -30,13 +30,13 @@ class FlaskConfluentKafka:
         # Initialize Kafka Producer
         try:
             self.producer = Producer(kafka_config)
-        except Exception as e:
+        except KafkaException as e:
             raise RuntimeError(f"Failed to create Kafka producer: {e}")
 
         # Initialize Kafka Consumer
         try:
             self.consumer = Consumer({**kafka_config, "group.id": self.group_id, "auto.offset.reset": "earliest"})
-        except Exception as e:
+        except KafkaException as e:
             raise RuntimeError(f"Failed to create Kafka consumer: {e}")
 
         # Store the extension in the app's extensions dictionary
@@ -45,7 +45,7 @@ class FlaskConfluentKafka:
         app.extensions["kafka_producer"] = self.producer
         app.extensions["kafka_consumer"] = self.consumer
 
-    def produce(self, topic: str, value: dict[str, Any] | str, key: str = None) -> None:
+    def produce(self, topic: str, value: dict[str, Any] | str, key: str | None = None) -> None:
         """Send a message to a Kafka topic."""
         if self.producer is None:
             raise RuntimeError("Kafka producer is not initialized.")
@@ -58,7 +58,7 @@ class FlaskConfluentKafka:
         try:
             self.producer.produce(topic, value=value, key=key)
             self.producer.flush()
-        except Exception as e:
+        except (BufferError, KafkaException) as e:
             raise RuntimeError(f"Failed to produce message: {e}")
 
     def consume(self, topics: list[str], timeout=1.0) -> str | None:
@@ -70,5 +70,5 @@ class FlaskConfluentKafka:
         if msg is None:
             return None
         if msg.error():
-            raise Exception(f"Consumer error: {msg.error()}")
+            raise RuntimeError(f"Consumer error: {msg.error()}")
         return msg.value().decode("utf-8")
