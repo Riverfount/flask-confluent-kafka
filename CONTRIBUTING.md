@@ -26,6 +26,17 @@ Auto-fixable issues can be fixed with:
 uv run ruff check --fix .
 ```
 
+## Documentation site
+
+Docs are built with [MkDocs](https://www.mkdocs.org/) and the [Material](https://squidfunk.github.io/mkdocs-material/) theme, from the `docs/` folder.
+
+```bash
+uv sync --group docs
+uv run mkdocs serve
+```
+
+Then open http://127.0.0.1:8000. The site is deployed to GitHub Pages automatically on push to `main`.
+
 ## Running tests
 
 > A test suite is being introduced in [#9](https://github.com/Riverfount/flask-confluent-kafka/issues/9). Once available, run it with:
