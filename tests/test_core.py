@@ -308,3 +308,227 @@ def test_init_app_builds_the_consumer_config_with_the_same_sasl_key_omission(app
     assert "sasl.password" not in config
     assert "sasl.mechanism" not in config
     assert config["group.id"] == "test-group"
+
+
+def test_add_producer_registers_and_returns_the_producer(app):
+    kafka = FlaskConfluentKafka(app)
+    producer = kafka.add_producer("orders")
+    assert producer is app.extensions["kafka_producers"]["orders"]
+
+
+def test_add_producer_builds_config_from_app_config_plus_overrides(app, mock_kafka_clients):
+    producer_cls, _consumer_cls = mock_kafka_clients
+    kafka = FlaskConfluentKafka(app)
+
+    kafka.add_producer("orders", config_overrides={"linger.ms": 5})
+
+    config = producer_cls.call_args.args[0]
+    assert config["bootstrap.servers"] == "localhost:9092"
+    assert config["security.protocol"] == "PLAINTEXT"
+    assert config["linger.ms"] == 5
+
+
+def test_add_producer_raises_for_a_duplicate_name(app):
+    kafka = FlaskConfluentKafka(app)
+    kafka.add_producer("orders")
+
+    with pytest.raises(RuntimeError, match="already registered"):
+        kafka.add_producer("orders")
+
+
+def test_add_producer_raises_when_the_instance_has_no_initialized_app():
+    kafka = FlaskConfluentKafka()
+    with pytest.raises(RuntimeError, match="not initialized"):
+        kafka.add_producer("orders")
+
+
+def test_add_producer_raises_for_an_active_but_uninitialized_app(make_app):
+    app_a, app_c = make_app("app-a"), make_app("app-c")
+    kafka = FlaskConfluentKafka()
+    kafka.init_app(app_a)  # only app_a is initialized
+
+    with app_c.app_context(), pytest.raises(RuntimeError, match="not initialized"):
+        kafka.add_producer("orders")
+
+
+def test_add_producer_wraps_a_kafka_exception_in_a_runtime_error(app, mock_kafka_clients):
+    producer_cls, _consumer_cls = mock_kafka_clients
+    kafka = FlaskConfluentKafka(app)
+    producer_cls.side_effect = KafkaException("boom")
+
+    with pytest.raises(RuntimeError, match="Failed to create Kafka producer"):
+        kafka.add_producer("orders")
+
+
+def test_add_producer_registers_an_atexit_hook_for_only_the_producer(app, mock_atexit_register):
+    kafka = FlaskConfluentKafka(app)
+    mock_atexit_register.clear()  # drop init_app's own hook; isolate add_producer's
+
+    producer = kafka.add_producer("orders")
+
+    assert len(mock_atexit_register) == 1
+    _func, args, _kwargs = mock_atexit_register[0]
+    assert args == (producer, None)
+
+
+def test_add_producer_atexit_hook_flushes_without_touching_a_consumer(app, mock_atexit_register):
+    kafka = FlaskConfluentKafka(app)
+    mock_atexit_register.clear()
+    producer = kafka.add_producer("orders")
+    func, args, kwargs = mock_atexit_register[0]
+
+    func(*args, **kwargs)
+
+    producer.flush.assert_called_once()
+
+
+def test_add_producer_registers_into_the_correct_apps_extensions_when_two_apps_share_one_extension(make_app):
+    app_a, app_b = make_app("app-a"), make_app("app-b")
+    kafka = FlaskConfluentKafka()
+    kafka.init_app(app_a)
+    kafka.init_app(app_b)
+
+    with app_a.app_context():
+        producer_a = kafka.add_producer("orders")
+    with app_b.app_context():
+        producer_b = kafka.add_producer("orders")
+
+    assert app_a.extensions["kafka_producers"]["orders"] is producer_a
+    assert app_b.extensions["kafka_producers"]["orders"] is producer_b
+    assert producer_a is not producer_b
+
+
+def test_add_consumer_registers_and_returns_the_consumer(app):
+    kafka = FlaskConfluentKafka(app)
+    consumer = kafka.add_consumer("orders", group_id="orders-group")
+    assert consumer is app.extensions["kafka_consumers"]["orders"]
+
+
+def test_add_consumer_builds_config_with_the_given_group_id_and_overrides(app, mock_kafka_clients):
+    _producer_cls, consumer_cls = mock_kafka_clients
+    kafka = FlaskConfluentKafka(app)
+
+    kafka.add_consumer("orders", group_id="orders-group", config_overrides={"auto.offset.reset": "latest"})
+
+    config = consumer_cls.call_args.args[0]
+    assert config["bootstrap.servers"] == "localhost:9092"
+    assert config["group.id"] == "orders-group"
+    assert config["auto.offset.reset"] == "latest"
+
+
+def test_add_consumer_defaults_auto_offset_reset_to_earliest(app, mock_kafka_clients):
+    _producer_cls, consumer_cls = mock_kafka_clients
+    kafka = FlaskConfluentKafka(app)
+
+    kafka.add_consumer("orders", group_id="orders-group")
+
+    config = consumer_cls.call_args.args[0]
+    assert config["auto.offset.reset"] == "earliest"
+
+
+def test_add_consumer_requires_a_group_id(app):
+    kafka = FlaskConfluentKafka(app)
+    with pytest.raises(TypeError):
+        kafka.add_consumer("orders")
+
+
+def test_add_consumer_raises_for_a_duplicate_name(app):
+    kafka = FlaskConfluentKafka(app)
+    kafka.add_consumer("orders", group_id="orders-group")
+
+    with pytest.raises(RuntimeError, match="already registered"):
+        kafka.add_consumer("orders", group_id="a-different-group")
+
+
+def test_add_consumer_raises_when_the_instance_has_no_initialized_app():
+    kafka = FlaskConfluentKafka()
+    with pytest.raises(RuntimeError, match="not initialized"):
+        kafka.add_consumer("orders", group_id="orders-group")
+
+
+def test_add_consumer_wraps_a_kafka_exception_in_a_runtime_error(app, mock_kafka_clients):
+    _producer_cls, consumer_cls = mock_kafka_clients
+    kafka = FlaskConfluentKafka(app)
+    consumer_cls.side_effect = KafkaException("boom")
+
+    with pytest.raises(RuntimeError, match="Failed to create Kafka consumer"):
+        kafka.add_consumer("orders", group_id="orders-group")
+
+
+def test_add_consumer_registers_an_atexit_hook_for_only_the_consumer(app, mock_atexit_register):
+    kafka = FlaskConfluentKafka(app)
+    mock_atexit_register.clear()
+
+    consumer = kafka.add_consumer("orders", group_id="orders-group")
+
+    assert len(mock_atexit_register) == 1
+    _func, args, _kwargs = mock_atexit_register[0]
+    assert args == (None, consumer)
+
+
+def test_add_consumer_atexit_hook_closes_without_touching_a_producer(app, mock_atexit_register):
+    kafka = FlaskConfluentKafka(app)
+    mock_atexit_register.clear()
+    consumer = kafka.add_consumer("orders", group_id="orders-group")
+    func, args, kwargs = mock_atexit_register[0]
+
+    func(*args, **kwargs)
+
+    consumer.close.assert_called_once()
+
+
+def test_add_consumer_registers_into_the_correct_apps_extensions_when_two_apps_share_one_extension(make_app):
+    app_a, app_b = make_app("app-a"), make_app("app-b")
+    kafka = FlaskConfluentKafka()
+    kafka.init_app(app_a)
+    kafka.init_app(app_b)
+
+    with app_a.app_context():
+        consumer_a = kafka.add_consumer("orders", group_id="orders-group")
+    with app_b.app_context():
+        consumer_b = kafka.add_consumer("orders", group_id="orders-group")
+
+    assert app_a.extensions["kafka_consumers"]["orders"] is consumer_a
+    assert app_b.extensions["kafka_consumers"]["orders"] is consumer_b
+    assert consumer_a is not consumer_b
+
+
+def test_get_producer_returns_a_registered_producer(app):
+    kafka = FlaskConfluentKafka(app)
+    producer = kafka.add_producer("orders")
+    assert kafka.get_producer("orders") is producer
+
+
+def test_get_producer_raises_for_an_unregistered_name(app):
+    kafka = FlaskConfluentKafka(app)
+    with pytest.raises(RuntimeError, match="not registered"):
+        kafka.get_producer("orders")
+
+
+def test_get_consumer_returns_a_registered_consumer(app):
+    kafka = FlaskConfluentKafka(app)
+    consumer = kafka.add_consumer("orders", group_id="orders-group")
+    assert kafka.get_consumer("orders") is consumer
+
+
+def test_get_consumer_raises_for_an_unregistered_name(app):
+    kafka = FlaskConfluentKafka(app)
+    with pytest.raises(RuntimeError, match="not registered"):
+        kafka.get_consumer("orders")
+
+
+def test_get_producer_uses_the_correct_app_when_two_apps_share_one_extension(make_app):
+    app_a, app_b = make_app("app-a"), make_app("app-b")
+    kafka = FlaskConfluentKafka()
+    kafka.init_app(app_a)
+    kafka.init_app(app_b)
+
+    with app_a.app_context():
+        producer_a = kafka.add_producer("orders")
+    with app_b.app_context():
+        producer_b = kafka.add_producer("orders")
+
+    with app_a.app_context():
+        assert kafka.get_producer("orders") is producer_a
+    with app_b.app_context():
+        assert kafka.get_producer("orders") is producer_b
