@@ -235,3 +235,76 @@ def test_consume_logs_a_warning_for_a_non_fatal_consumer_error(app, caplog):
         kafka.consume(["topic"])
 
     assert "Non-fatal Kafka consumer error" in caplog.text
+
+
+def test_init_app_omits_sasl_keys_for_default_plaintext_protocol(app, mock_kafka_clients):
+    producer_cls, _consumer_cls = mock_kafka_clients
+    FlaskConfluentKafka(app)
+
+    config = producer_cls.call_args.args[0]
+    assert "sasl.username" not in config
+    assert "sasl.password" not in config
+    assert "sasl.mechanism" not in config
+    assert config["security.protocol"] == "PLAINTEXT"
+
+
+def test_init_app_omits_sasl_keys_for_plain_ssl_protocol(make_app, mock_kafka_clients):
+    producer_cls, _consumer_cls = mock_kafka_clients
+    app = make_app("app-ssl", KAFKA_PROTOCOL="SSL")
+    FlaskConfluentKafka(app)
+
+    config = producer_cls.call_args.args[0]
+    assert "sasl.username" not in config
+    assert "sasl.password" not in config
+    assert "sasl.mechanism" not in config
+
+
+def test_init_app_includes_sasl_keys_for_sasl_ssl_protocol(make_app, mock_kafka_clients):
+    producer_cls, _consumer_cls = mock_kafka_clients
+    app = make_app(
+        "app-sasl-ssl",
+        KAFKA_PROTOCOL="SASL_SSL",
+        KAFKA_USERNAME="my-user",
+        KAFKA_PASSWORD="my-password",
+        KAFKA_MECHANISM="SCRAM-SHA-256",
+    )
+    FlaskConfluentKafka(app)
+
+    config = producer_cls.call_args.args[0]
+    assert config["sasl.username"] == "my-user"
+    assert config["sasl.password"] == "my-password"
+    assert config["sasl.mechanism"] == "SCRAM-SHA-256"
+    assert config["security.protocol"] == "SASL_SSL"
+
+
+def test_init_app_includes_sasl_keys_for_sasl_plaintext_protocol(make_app, mock_kafka_clients):
+    producer_cls, _consumer_cls = mock_kafka_clients
+    app = make_app("app-sasl-plaintext", KAFKA_PROTOCOL="SASL_PLAINTEXT", KAFKA_USERNAME="u", KAFKA_PASSWORD="p")
+    FlaskConfluentKafka(app)
+
+    config = producer_cls.call_args.args[0]
+    assert "sasl.username" in config
+    assert "sasl.password" in config
+    assert "sasl.mechanism" in config
+
+
+def test_init_app_matches_sasl_protocol_case_insensitively(make_app, mock_kafka_clients):
+    producer_cls, _consumer_cls = mock_kafka_clients
+    app = make_app("app-lowercase-protocol", KAFKA_PROTOCOL="sasl_ssl", KAFKA_USERNAME="u", KAFKA_PASSWORD="p")
+    FlaskConfluentKafka(app)
+
+    config = producer_cls.call_args.args[0]
+    assert "sasl.username" in config
+    assert "sasl.password" in config
+    assert "sasl.mechanism" in config
+
+
+def test_init_app_builds_the_consumer_config_with_the_same_sasl_key_omission(app, mock_kafka_clients):
+    _producer_cls, consumer_cls = mock_kafka_clients
+    FlaskConfluentKafka(app)
+
+    config = consumer_cls.call_args.args[0]
+    assert "sasl.username" not in config
+    assert "sasl.password" not in config
+    assert "sasl.mechanism" not in config
+    assert config["group.id"] == "test-group"

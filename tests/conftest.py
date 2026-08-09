@@ -33,9 +33,10 @@ def mock_atexit_register(monkeypatch):
 
 @pytest.fixture
 def make_app(mock_kafka_clients):
-    def _make_app(name: str = "test-app") -> Flask:
+    def _make_app(name: str = "test-app", **config_overrides) -> Flask:
         app = Flask(name)
         app.config.update(KAFKA_SERVER="localhost:9092", KAFKA_GROUP_ID="test-group")
+        app.config.update(config_overrides)
         return app
 
     return _make_app
