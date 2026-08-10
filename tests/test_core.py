@@ -4,18 +4,43 @@ from unittest.mock import MagicMock
 import pytest
 from confluent_kafka import KafkaError, KafkaException
 
-from flask_confluent_kafka import FlaskConfluentKafka
+from flask_confluent_kafka import (
+    AlreadyRegisteredError,
+    ClientCreationError,
+    ConsumeError,
+    FlaskConfluentKafka,
+    FlaskConfluentKafkaError,
+    NotInitializedError,
+    NotRegisteredError,
+    ProduceError,
+)
+
+
+@pytest.mark.parametrize(
+    "exc_cls",
+    [
+        NotInitializedError,
+        AlreadyRegisteredError,
+        NotRegisteredError,
+        ClientCreationError,
+        ProduceError,
+        ConsumeError,
+    ],
+)
+def test_every_kafka_error_is_a_flask_confluent_kafka_error_and_a_runtime_error(exc_cls):
+    assert issubclass(exc_cls, FlaskConfluentKafkaError)
+    assert issubclass(exc_cls, RuntimeError)
 
 
 def test_produce_before_init_app_raises_runtime_error():
     kafka = FlaskConfluentKafka()
-    with pytest.raises(RuntimeError, match="producer is not initialized"):
+    with pytest.raises(NotInitializedError, match="producer is not initialized"):
         kafka.produce("topic", "value")
 
 
 def test_consume_before_init_app_raises_runtime_error():
     kafka = FlaskConfluentKafka()
-    with pytest.raises(RuntimeError, match="consumer is not initialized"):
+    with pytest.raises(NotInitializedError, match="consumer is not initialized"):
         kafka.consume(["topic"])
 
 
@@ -48,7 +73,7 @@ def test_produce_wraps_a_kafka_exception_in_a_runtime_error(app):
     producer = app.extensions["kafka_producer"]
     producer.produce.side_effect = KafkaException("boom")
 
-    with pytest.raises(RuntimeError, match="Failed to produce message"):
+    with pytest.raises(ProduceError, match="Failed to produce message"):
         kafka.produce("topic", "value")
 
     producer.poll.assert_not_called()
@@ -59,7 +84,7 @@ def test_produce_wraps_a_buffer_error_in_a_runtime_error(app):
     producer = app.extensions["kafka_producer"]
     producer.produce.side_effect = BufferError("queue full")
 
-    with pytest.raises(RuntimeError, match="Failed to produce message"):
+    with pytest.raises(ProduceError, match="Failed to produce message"):
         kafka.produce("topic", "value")
 
     producer.poll.assert_not_called()
@@ -176,7 +201,7 @@ def test_produce_raises_for_an_active_but_uninitialized_app(make_app):
     kafka = FlaskConfluentKafka()
     kafka.init_app(app_a)  # only app_a is initialized
 
-    with app_c.app_context(), pytest.raises(RuntimeError, match="producer is not initialized"):
+    with app_c.app_context(), pytest.raises(NotInitializedError, match="producer is not initialized"):
         kafka.produce("topic", "value")
 
 
@@ -206,7 +231,7 @@ def test_init_app_wraps_a_kafka_exception_in_a_runtime_error_for_the_producer(ap
     producer_cls, _consumer_cls = mock_kafka_clients
     producer_cls.side_effect = KafkaException("boom")
 
-    with pytest.raises(RuntimeError, match="Failed to create Kafka producer"):
+    with pytest.raises(ClientCreationError, match="Failed to create Kafka producer"):
         FlaskConfluentKafka(app)
 
 
@@ -214,7 +239,7 @@ def test_init_app_wraps_a_kafka_exception_in_a_runtime_error_for_the_consumer(ap
     _producer_cls, consumer_cls = mock_kafka_clients
     consumer_cls.side_effect = KafkaException("boom")
 
-    with pytest.raises(RuntimeError, match="Failed to create Kafka consumer"):
+    with pytest.raises(ClientCreationError, match="Failed to create Kafka consumer"):
         FlaskConfluentKafka(app)
 
 
@@ -247,7 +272,7 @@ def test_consume_raises_for_a_fatal_consumer_error(app):
     msg.error.return_value = KafkaError(KafkaError._ALL_BROKERS_DOWN, fatal=True)
     consumer.poll.return_value = msg
 
-    with pytest.raises(RuntimeError, match="Consumer error"):
+    with pytest.raises(ConsumeError, match="Consumer error"):
         kafka.consume(["topic"])
 
 
@@ -403,7 +428,7 @@ def test_register_client_raises_for_a_duplicate_name(app, mock_kafka_clients):
     kafka = FlaskConfluentKafka(app)
     kafka._register_client("orders", registry_key="kafka_producers", label="Producer", client_cls=producer_cls)
 
-    with pytest.raises(RuntimeError, match="Producer 'orders' is already registered"):
+    with pytest.raises(AlreadyRegisteredError, match="Producer 'orders' is already registered"):
         kafka._register_client("orders", registry_key="kafka_producers", label="Producer", client_cls=producer_cls)
 
 
@@ -412,13 +437,13 @@ def test_register_client_wraps_a_kafka_exception_with_the_lowercased_label(app, 
     kafka = FlaskConfluentKafka(app)
     producer_cls.side_effect = KafkaException("boom")
 
-    with pytest.raises(RuntimeError, match="Failed to create Kafka producer 'orders'"):
+    with pytest.raises(ClientCreationError, match="Failed to create Kafka producer 'orders'"):
         kafka._register_client("orders", registry_key="kafka_producers", label="Producer", client_cls=producer_cls)
 
 
 def test_register_client_raises_when_the_instance_has_no_initialized_app():
     kafka = FlaskConfluentKafka()
-    with pytest.raises(RuntimeError, match="not initialized"):
+    with pytest.raises(NotInitializedError, match="not initialized"):
         kafka._register_client("orders", registry_key="kafka_producers", label="Producer", client_cls=MagicMock())
 
 
@@ -444,13 +469,13 @@ def test_add_producer_raises_for_a_duplicate_name(app):
     kafka = FlaskConfluentKafka(app)
     kafka.add_producer("orders")
 
-    with pytest.raises(RuntimeError, match="already registered"):
+    with pytest.raises(AlreadyRegisteredError, match="already registered"):
         kafka.add_producer("orders")
 
 
 def test_add_producer_raises_when_the_instance_has_no_initialized_app():
     kafka = FlaskConfluentKafka()
-    with pytest.raises(RuntimeError, match="not initialized"):
+    with pytest.raises(NotInitializedError, match="not initialized"):
         kafka.add_producer("orders")
 
 
@@ -459,7 +484,7 @@ def test_add_producer_raises_for_an_active_but_uninitialized_app(make_app):
     kafka = FlaskConfluentKafka()
     kafka.init_app(app_a)  # only app_a is initialized
 
-    with app_c.app_context(), pytest.raises(RuntimeError, match="not initialized"):
+    with app_c.app_context(), pytest.raises(NotInitializedError, match="not initialized"):
         kafka.add_producer("orders")
 
 
@@ -468,7 +493,7 @@ def test_add_producer_wraps_a_kafka_exception_in_a_runtime_error(app, mock_kafka
     kafka = FlaskConfluentKafka(app)
     producer_cls.side_effect = KafkaException("boom")
 
-    with pytest.raises(RuntimeError, match="Failed to create Kafka producer"):
+    with pytest.raises(ClientCreationError, match="Failed to create Kafka producer"):
         kafka.add_producer("orders")
 
 
@@ -548,13 +573,13 @@ def test_add_consumer_raises_for_a_duplicate_name(app):
     kafka = FlaskConfluentKafka(app)
     kafka.add_consumer("orders", group_id="orders-group")
 
-    with pytest.raises(RuntimeError, match="already registered"):
+    with pytest.raises(AlreadyRegisteredError, match="already registered"):
         kafka.add_consumer("orders", group_id="a-different-group")
 
 
 def test_add_consumer_raises_when_the_instance_has_no_initialized_app():
     kafka = FlaskConfluentKafka()
-    with pytest.raises(RuntimeError, match="not initialized"):
+    with pytest.raises(NotInitializedError, match="not initialized"):
         kafka.add_consumer("orders", group_id="orders-group")
 
 
@@ -563,7 +588,7 @@ def test_add_consumer_wraps_a_kafka_exception_in_a_runtime_error(app, mock_kafka
     kafka = FlaskConfluentKafka(app)
     consumer_cls.side_effect = KafkaException("boom")
 
-    with pytest.raises(RuntimeError, match="Failed to create Kafka consumer"):
+    with pytest.raises(ClientCreationError, match="Failed to create Kafka consumer"):
         kafka.add_consumer("orders", group_id="orders-group")
 
 
@@ -613,7 +638,7 @@ def test_get_producer_returns_a_registered_producer(app):
 
 def test_get_producer_raises_for_an_unregistered_name(app):
     kafka = FlaskConfluentKafka(app)
-    with pytest.raises(RuntimeError, match="not registered"):
+    with pytest.raises(NotRegisteredError, match="not registered"):
         kafka.get_producer("orders")
 
 
@@ -625,7 +650,7 @@ def test_get_consumer_returns_a_registered_consumer(app):
 
 def test_get_consumer_raises_for_an_unregistered_name(app):
     kafka = FlaskConfluentKafka(app)
-    with pytest.raises(RuntimeError, match="not registered"):
+    with pytest.raises(NotRegisteredError, match="not registered"):
         kafka.get_consumer("orders")
 
 

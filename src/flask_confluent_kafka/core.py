@@ -6,6 +6,15 @@ from typing import Any, cast
 from confluent_kafka import Consumer, KafkaException, Producer
 from flask import Flask, current_app, has_app_context
 
+from .exceptions import (
+    AlreadyRegisteredError,
+    ClientCreationError,
+    ConsumeError,
+    NotInitializedError,
+    NotRegisteredError,
+    ProduceError,
+)
+
 logger = logging.getLogger(__name__)
 
 _DEFAULT_SHUTDOWN_FLUSH_TIMEOUT = 10.0
@@ -51,13 +60,13 @@ class FlaskConfluentKafka:
         try:
             self.producer = Producer(kafka_config)
         except KafkaException as e:
-            raise RuntimeError(f"Failed to create Kafka producer: {e}")
+            raise ClientCreationError(f"Failed to create Kafka producer: {e}")
 
         # Initialize Kafka Consumer
         try:
             self.consumer = Consumer({**kafka_config, "group.id": group_id, "auto.offset.reset": "earliest"})
         except KafkaException as e:
-            raise RuntimeError(f"Failed to create Kafka consumer: {e}")
+            raise ClientCreationError(f"Failed to create Kafka consumer: {e}")
 
         # Store the extension in the app's extensions dictionary
         if not hasattr(app, "extensions"):
@@ -111,7 +120,7 @@ class FlaskConfluentKafka:
         """
         app = self._resolve_app()
         if app is None or "kafka_producer" not in app.extensions:
-            raise RuntimeError("Kafka extension is not initialized for this app; call init_app() first.")
+            raise NotInitializedError("Kafka extension is not initialized for this app; call init_app() first.")
         return app
 
     def _get_client(self, extension_key: str, label: str, name: str | None = None) -> Producer | Consumer:
@@ -121,13 +130,13 @@ class FlaskConfluentKafka:
         if name is None:
             client: Producer | Consumer | None = app.extensions.get(extension_key) if app is not None else None
             if client is None:
-                raise RuntimeError(f"Kafka {label} is not initialized.")
+                raise NotInitializedError(f"Kafka {label} is not initialized.")
             return client
 
         registry: dict[str, Producer | Consumer] | None = app.extensions.get(extension_key) if app is not None else None
         client = registry.get(name) if registry is not None else None
         if client is None:
-            raise RuntimeError(f"Kafka {label} '{name}' is not registered for this app.")
+            raise NotRegisteredError(f"Kafka {label} '{name}' is not registered for this app.")
         return client
 
     def _register_client(
@@ -152,13 +161,13 @@ class FlaskConfluentKafka:
         registry: dict[str, Producer | Consumer] = app.extensions.setdefault(registry_key, {})
 
         if name in registry:
-            raise RuntimeError(f"{label} '{name}' is already registered for this app.")
+            raise AlreadyRegisteredError(f"{label} '{name}' is already registered for this app.")
 
         client_config = {**self._build_kafka_config(app), **(extra_config or {}), **(config_overrides or {})}
         try:
             client = client_cls(client_config)
         except KafkaException as e:
-            raise RuntimeError(f"Failed to create Kafka {label.lower()} '{name}': {e}")
+            raise ClientCreationError(f"Failed to create Kafka {label.lower()} '{name}': {e}")
 
         registry[name] = client
         return client
@@ -178,8 +187,9 @@ class FlaskConfluentKafka:
         hook, so repeated calls with new names would accumulate them for
         the life of the process.
 
-        Raises RuntimeError if this app hasn't been init_app()'d yet, if
-        `name` is already registered, or if Producer construction fails.
+        Raises NotInitializedError if this app hasn't been init_app()'d
+        yet, AlreadyRegisteredError if `name` is already registered, or
+        ClientCreationError if Producer construction fails.
         """
         producer = cast(
             Producer,
@@ -212,7 +222,8 @@ class FlaskConfluentKafka:
         hook, so repeated calls with new names would accumulate them for
         the life of the process.
 
-        Raises RuntimeError under the same conditions as add_producer().
+        Raises the same exceptions as add_producer(), under the same
+        conditions.
         """
         consumer = cast(
             Consumer,
@@ -241,10 +252,12 @@ class FlaskConfluentKafka:
 
         Queues the message and polls once, non-blocking, to serve any
         already-completed delivery callbacks -- this does not wait for
-        broker acknowledgment. BufferError/KafkaException raised by produce()
-        itself (e.g. local queue full) still raise RuntimeError; broker-side
-        delivery failures are not surfaced here. Call flush() on
-        app.extensions["kafka_producer"] directly for a delivery guarantee.
+        broker acknowledgment. Raises NotInitializedError if the producer
+        isn't initialized. BufferError/KafkaException raised by produce()
+        itself (e.g. local queue full) are wrapped in ProduceError;
+        broker-side delivery failures are not surfaced here. Call flush()
+        on app.extensions["kafka_producer"] directly for a delivery
+        guarantee.
         """
         producer = cast(Producer, self._get_client("kafka_producer", "producer"))
 
@@ -254,7 +267,7 @@ class FlaskConfluentKafka:
             producer.produce(topic, value=payload, key=key)
             producer.poll(0)
         except (BufferError, KafkaException) as e:
-            raise RuntimeError(f"Failed to produce message: {e}")
+            raise ProduceError(f"Failed to produce message: {e}")
 
     def consume(self, topics: list[str], timeout: float = 1.0) -> str | None:
         """Consume messages from Kafka topics.
@@ -263,7 +276,7 @@ class FlaskConfluentKafka:
         app's consumer is already subscribed to, so repeated calls in a
         consume loop don't trigger a rebalance on every poll.
 
-        A msg.error() is only raised as a RuntimeError when librdkafka has
+        A msg.error() is only raised as a ConsumeError when librdkafka has
         flagged it fatal (error.fatal() is True) -- the client itself is
         broken and can't recover. Any other error -- including purely
         informational ones like KafkaError._PARTITION_EOF, and
@@ -287,7 +300,7 @@ class FlaskConfluentKafka:
         error = msg.error()
         if error is not None:
             if error.fatal():
-                raise RuntimeError(f"Consumer error: {error}")
+                raise ConsumeError(f"Consumer error: {error}")
             logger.warning("Non-fatal Kafka consumer error: %s", error)
             return None
 
