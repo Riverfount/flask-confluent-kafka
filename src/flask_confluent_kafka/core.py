@@ -144,6 +144,11 @@ class FlaskConfluentKafka:
         cluster). Stores the result in app.extensions["kafka_producers"][name]
         and registers its own atexit shutdown hook that flushes it.
 
+        Meant to be called once per name at application setup time, not
+        repeatedly (e.g. per-request) -- each call registers its own atexit
+        hook, so repeated calls with new names would accumulate them for
+        the life of the process.
+
         Raises RuntimeError if this app hasn't been init_app()'d yet, if
         `name` is already registered, or if Producer construction fails.
         """
@@ -175,6 +180,11 @@ class FlaskConfluentKafka:
         config_overrides layered on top of all of that. Stores the result
         in app.extensions["kafka_consumers"][name] and registers its own
         atexit shutdown hook that closes it.
+
+        Meant to be called once per name at application setup time, not
+        repeatedly (e.g. per-request) -- each call registers its own atexit
+        hook, so repeated calls with new names would accumulate them for
+        the life of the process.
 
         Raises RuntimeError under the same conditions as add_producer().
         """
