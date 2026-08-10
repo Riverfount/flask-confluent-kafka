@@ -139,6 +139,10 @@ Every error raised by this extension is an instance of `FlaskConfluentKafkaError
 
 This project is early-stage. See the [issue tracker](https://github.com/Riverfount/flask-confluent-kafka/issues) for known bugs and planned improvements.
 
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md).
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md).
