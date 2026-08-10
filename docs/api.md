@@ -1,10 +1,10 @@
 # API Reference
 
-## `FlaskConfluentKafka(app=None)`
+## `FlaskConfluentKafka(app: Flask | None = None)`
 
 Creates the extension. If `app` is given, calls `init_app(app)` immediately; otherwise, call `init_app(app)` yourself later (application factory pattern).
 
-## `init_app(app)`
+## `init_app(app: Flask) -> None`
 
 Reads the config keys described in [Configuration](configuration.md), creates a `confluent_kafka.Producer` and `confluent_kafka.Consumer` — the **default pair** — and stores them in `app.extensions["kafka_producer"]` / `app.extensions["kafka_consumer"]`. For additional producers/consumers, see `add_producer()`/`add_consumer()` below.
 

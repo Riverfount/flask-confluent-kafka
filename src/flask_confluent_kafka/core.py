@@ -4,7 +4,7 @@ import logging
 from typing import Any
 
 from confluent_kafka import Consumer, KafkaException, Producer
-from flask import current_app, has_app_context
+from flask import Flask, current_app, has_app_context
 
 logger = logging.getLogger(__name__)
 
@@ -35,14 +35,14 @@ def _shutdown_kafka_clients(
 
 
 class FlaskConfluentKafka:
-    def __init__(self, app=None):
+    def __init__(self, app: Flask | None = None) -> None:
         self.app = app
         self.producer = None
         self.consumer = None
         if self.app is not None:
             self.init_app(self.app)
 
-    def init_app(self, app):
+    def init_app(self, app: Flask) -> None:
         self.app = app
         group_id = app.config.get("KAFKA_GROUP_ID", "default_group")
         kafka_config = self._build_kafka_config(app)
@@ -67,7 +67,7 @@ class FlaskConfluentKafka:
 
         atexit.register(_shutdown_kafka_clients, self.producer, self.consumer)
 
-    def _build_kafka_config(self, app) -> dict[str, Any]:
+    def _build_kafka_config(self, app: Flask) -> dict[str, Any]:
         """Build the base client config (bootstrap.servers, security.protocol,
         and conditionally sasl.*) from app.config.
 
@@ -100,7 +100,7 @@ class FlaskConfluentKafka:
             return current_app
         return self.app
 
-    def _resolve_initialized_app(self):
+    def _resolve_initialized_app(self) -> Flask:
         """Resolve the active app (see _resolve_app) and confirm it's
         already been init_app()'d.
 
@@ -230,7 +230,7 @@ class FlaskConfluentKafka:
         except (BufferError, KafkaException) as e:
             raise RuntimeError(f"Failed to produce message: {e}")
 
-    def consume(self, topics: list[str], timeout=1.0) -> str | None:
+    def consume(self, topics: list[str], timeout: float = 1.0) -> str | None:
         """Consume messages from Kafka topics.
 
         Subscribes only when the requested topics differ from what this
