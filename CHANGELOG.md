@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-08-10
+
+### Fixed
+
+- `pyproject.toml` now declares `classifiers` (development status, license, supported Python version, Flask framework, typing support), fixing the PyPI-versions badge in `README.md`, which showed as missing since `0.2.0` shipped with no classifiers.
+
 ## [0.2.0] - 2026-08-10
 
 ### Added
@@ -32,5 +38,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 Released before this changelog existed; not documented here.
 
-[Unreleased]: https://github.com/Riverfount/flask-confluent-kafka/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/Riverfount/flask-confluent-kafka/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/Riverfount/flask-confluent-kafka/releases/tag/v0.2.1
 [0.2.0]: https://github.com/Riverfount/flask-confluent-kafka/releases/tag/v0.2.0
