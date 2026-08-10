@@ -261,6 +261,17 @@ def test_consume_returns_none_for_a_non_fatal_consumer_error(app):
     assert kafka.consume(["topic"]) is None
 
 
+def test_consume_returns_none_for_a_message_with_no_value(app):
+    kafka = FlaskConfluentKafka(app)
+    consumer = app.extensions["kafka_consumer"]
+    msg = MagicMock()
+    msg.error.return_value = None
+    msg.value.return_value = None
+    consumer.poll.return_value = msg
+
+    assert kafka.consume(["topic"]) is None
+
+
 def test_consume_does_not_decode_a_message_with_a_non_fatal_error(app):
     kafka = FlaskConfluentKafka(app)
     consumer = app.extensions["kafka_consumer"]

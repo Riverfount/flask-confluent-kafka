@@ -17,6 +17,7 @@ build-backend = "hatchling.build"
 
 [dependency-groups]
 dev = [
+    "mypy>=2.3.0",
     "pytest>=9.1.1",
     "pytest-cov>=7.1.0",
     "ruff>=0.14.13",
@@ -28,6 +29,10 @@ docs = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.mypy]
+files = ["src/flask_confluent_kafka"]
+strict = true
 
 [tool.coverage.run]
 source = ["src/flask_confluent_kafka"]

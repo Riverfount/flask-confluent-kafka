@@ -18,6 +18,14 @@ uv sync
 uv run ruff check .
 ```
 
+## Type checking
+
+```bash
+uv run mypy
+```
+
+`src/flask_confluent_kafka` is checked under mypy's `strict` mode (see `[tool.mypy]` in `pyproject.toml`) — the package ships a `py.typed` marker, so keeping it clean matters for downstream users too.
+
 ## Documentation site
 
 Docs are built with [MkDocs](https://www.mkdocs.org/) and the [Material](https://squidfunk.github.io/mkdocs-material/) theme, from the `docs/` folder.
@@ -41,12 +49,12 @@ CI runs the full coverage-gated suite on every pull request against `main`:
 uv run pytest --cov=flask_confluent_kafka --cov-report=term-missing --cov-fail-under=90
 ```
 
-`main` is protected — both `ruff check` and the coverage-gated test suite must pass before a pull request can be merged, including for repo admins.
+`main` is protected — `ruff check`, `mypy`, and the coverage-gated test suite must all pass before a pull request can be merged, including for repo admins.
 
 ## Making changes
 
 1. Check the [issue tracker](https://github.com/Riverfount/flask-confluent-kafka/issues) for existing issues related to what you want to work on, or open a new one for anything not tracked yet.
 2. Create a branch off `main`.
 3. Make your changes, keeping them focused on the issue at hand.
-4. Make sure `ruff check .` and `uv run pytest` pass.
+4. Make sure `ruff check .`, `uv run mypy`, and `uv run pytest` pass.
 5. Open a pull request referencing the issue it closes (e.g. `Closes #1`).

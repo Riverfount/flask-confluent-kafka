@@ -1,7 +1,7 @@
 import atexit
 import json
 import logging
-from typing import Any
+from typing import Any, cast
 
 from confluent_kafka import Consumer, KafkaException, Producer
 from flask import Flask, current_app, has_app_context
@@ -37,8 +37,8 @@ def _shutdown_kafka_clients(
 class FlaskConfluentKafka:
     def __init__(self, app: Flask | None = None) -> None:
         self.app = app
-        self.producer = None
-        self.consumer = None
+        self.producer: Producer | None = None
+        self.consumer: Consumer | None = None
         if self.app is not None:
             self.init_app(self.app)
 
@@ -90,7 +90,7 @@ class FlaskConfluentKafka:
 
         return kafka_config
 
-    def _resolve_app(self):
+    def _resolve_app(self) -> Flask | None:
         """Resolve the active app: current_app takes priority over the
         constructor's app so calls made while a given app's context is
         active never leak another app's state, when this instance is
@@ -117,7 +117,7 @@ class FlaskConfluentKafka:
     def _get_client(self, extension_key: str) -> Producer | Consumer:
         """Resolve the producer/consumer for the active app (see `_resolve_app`)."""
         app = self._resolve_app()
-        client = app.extensions.get(extension_key) if app is not None else None
+        client: Producer | Consumer | None = app.extensions.get(extension_key) if app is not None else None
 
         if client is None:
             label = extension_key.removeprefix("kafka_")
@@ -127,7 +127,7 @@ class FlaskConfluentKafka:
     def _get_named_client(self, extension_key: str, label: str, name: str) -> Producer | Consumer:
         """Resolve a named producer/consumer for the active app (see `_resolve_app`)."""
         app = self._resolve_app()
-        registry = app.extensions.get(extension_key) if app is not None else None
+        registry: dict[str, Producer | Consumer] | None = app.extensions.get(extension_key) if app is not None else None
         client = registry.get(name) if registry is not None else None
 
         if client is None:
@@ -201,11 +201,11 @@ class FlaskConfluentKafka:
 
     def get_producer(self, name: str) -> Producer:
         """Return the named Producer registered via add_producer()."""
-        return self._get_named_client("kafka_producers", "producer", name)
+        return cast(Producer, self._get_named_client("kafka_producers", "producer", name))
 
     def get_consumer(self, name: str) -> Consumer:
         """Return the named Consumer registered via add_consumer()."""
-        return self._get_named_client("kafka_consumers", "consumer", name)
+        return cast(Consumer, self._get_named_client("kafka_consumers", "consumer", name))
 
     def produce(self, topic: str, value: dict[str, Any] | str, key: str | None = None) -> None:
         """Send a message to a Kafka topic.
@@ -217,15 +217,12 @@ class FlaskConfluentKafka:
         delivery failures are not surfaced here. Call flush() on
         app.extensions["kafka_producer"] directly for a delivery guarantee.
         """
-        producer = self._get_client("kafka_producer")
+        producer = cast(Producer, self._get_client("kafka_producer"))
 
-        if isinstance(value, dict):
-            value = json.dumps(value)
-        elif isinstance(value, str):
-            value = value.encode("utf-8")
+        payload: str | bytes = json.dumps(value) if isinstance(value, dict) else value.encode("utf-8")
 
         try:
-            producer.produce(topic, value=value, key=key)
+            producer.produce(topic, value=payload, key=key)
             producer.poll(0)
         except (BufferError, KafkaException) as e:
             raise RuntimeError(f"Failed to produce message: {e}")
@@ -242,10 +239,12 @@ class FlaskConfluentKafka:
         broken and can't recover. Any other error -- including purely
         informational ones like KafkaError._PARTITION_EOF, and
         transient/retriable errors librdkafka can recover from on its own --
-        is logged and treated as "no message this poll", returning None.
+        is logged and treated as "no message this poll", returning None. A
+        message with no value (e.g. a tombstone in a compacted topic) also
+        returns None rather than raising.
         """
-        consumer = self._get_client("kafka_consumer")
-        app = self._resolve_app()
+        consumer = cast(Consumer, self._get_client("kafka_consumer"))
+        app = self._resolve_initialized_app()
 
         requested_topics = frozenset(topics)
         if app.extensions.get("kafka_subscribed_topics") != requested_topics:
@@ -263,4 +262,7 @@ class FlaskConfluentKafka:
             logger.warning("Non-fatal Kafka consumer error: %s", error)
             return None
 
-        return msg.value().decode("utf-8")
+        raw_value = msg.value()
+        if raw_value is None:
+            return None
+        return raw_value.decode("utf-8")
