@@ -26,6 +26,10 @@ Next: [Quickstart](quickstart.md).
 
 This project is early-stage. See the [issue tracker](https://github.com/Riverfount/flask-confluent-kafka/issues) for known bugs and planned improvements.
 
+## Changelog
+
+See [CHANGELOG.md](https://github.com/Riverfount/flask-confluent-kafka/blob/main/CHANGELOG.md).
+
 ## License
 
 GPL-3.0 — see the `license` field in `pyproject.toml`.
