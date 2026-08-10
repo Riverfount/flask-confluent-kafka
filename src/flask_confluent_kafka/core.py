@@ -114,22 +114,18 @@ class FlaskConfluentKafka:
             raise RuntimeError("Kafka extension is not initialized for this app; call init_app() first.")
         return app
 
-    def _get_client(self, extension_key: str) -> Producer | Consumer:
-        """Resolve the producer/consumer for the active app (see `_resolve_app`)."""
+    def _get_client(self, extension_key: str, label: str, name: str | None = None) -> Producer | Consumer:
+        """Resolve the default (name=None) or a named producer/consumer for the active app (see `_resolve_app`)."""
         app = self._resolve_app()
-        client: Producer | Consumer | None = app.extensions.get(extension_key) if app is not None else None
 
-        if client is None:
-            label = extension_key.removeprefix("kafka_")
-            raise RuntimeError(f"Kafka {label} is not initialized.")
-        return client
+        if name is None:
+            client: Producer | Consumer | None = app.extensions.get(extension_key) if app is not None else None
+            if client is None:
+                raise RuntimeError(f"Kafka {label} is not initialized.")
+            return client
 
-    def _get_named_client(self, extension_key: str, label: str, name: str) -> Producer | Consumer:
-        """Resolve a named producer/consumer for the active app (see `_resolve_app`)."""
-        app = self._resolve_app()
         registry: dict[str, Producer | Consumer] | None = app.extensions.get(extension_key) if app is not None else None
         client = registry.get(name) if registry is not None else None
-
         if client is None:
             raise RuntimeError(f"Kafka {label} '{name}' is not registered for this app.")
         return client
@@ -211,11 +207,11 @@ class FlaskConfluentKafka:
 
     def get_producer(self, name: str) -> Producer:
         """Return the named Producer registered via add_producer()."""
-        return cast(Producer, self._get_named_client("kafka_producers", "producer", name))
+        return cast(Producer, self._get_client("kafka_producers", "producer", name))
 
     def get_consumer(self, name: str) -> Consumer:
         """Return the named Consumer registered via add_consumer()."""
-        return cast(Consumer, self._get_named_client("kafka_consumers", "consumer", name))
+        return cast(Consumer, self._get_client("kafka_consumers", "consumer", name))
 
     def produce(self, topic: str, value: dict[str, Any] | str, key: str | None = None) -> None:
         """Send a message to a Kafka topic.
@@ -227,7 +223,7 @@ class FlaskConfluentKafka:
         delivery failures are not surfaced here. Call flush() on
         app.extensions["kafka_producer"] directly for a delivery guarantee.
         """
-        producer = cast(Producer, self._get_client("kafka_producer"))
+        producer = cast(Producer, self._get_client("kafka_producer", "producer"))
 
         payload: str | bytes = json.dumps(value) if isinstance(value, dict) else value.encode("utf-8")
 
@@ -253,7 +249,7 @@ class FlaskConfluentKafka:
         message with no value (e.g. a tombstone in a compacted topic) also
         returns None rather than raising.
         """
-        consumer = cast(Consumer, self._get_client("kafka_consumer"))
+        consumer = cast(Consumer, self._get_client("kafka_consumer", "consumer"))
         app = self._resolve_initialized_app()
 
         requested_topics = frozenset(topics)
