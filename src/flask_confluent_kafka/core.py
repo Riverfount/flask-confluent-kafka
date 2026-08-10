@@ -130,6 +130,39 @@ class FlaskConfluentKafka:
             raise RuntimeError(f"Kafka {label} '{name}' is not registered for this app.")
         return client
 
+    def _register_client(
+        self,
+        name: str,
+        *,
+        registry_key: str,
+        label: str,
+        client_cls: type[Producer] | type[Consumer],
+        extra_config: dict[str, Any] | None = None,
+        config_overrides: dict[str, Any] | None = None,
+    ) -> Producer | Consumer:
+        """Shared skeleton for add_producer()/add_consumer(): resolve the
+        initialized app, reject a duplicate name, build config, construct
+        the client, and store it in the named registry.
+
+        Caller is responsible for the atexit shutdown hook, since a
+        producer/consumer occupies a different positional slot in
+        _shutdown_kafka_clients.
+        """
+        app = self._resolve_initialized_app()
+        registry: dict[str, Producer | Consumer] = app.extensions.setdefault(registry_key, {})
+
+        if name in registry:
+            raise RuntimeError(f"{label} '{name}' is already registered for this app.")
+
+        client_config = {**self._build_kafka_config(app), **(extra_config or {}), **(config_overrides or {})}
+        try:
+            client = client_cls(client_config)
+        except KafkaException as e:
+            raise RuntimeError(f"Failed to create Kafka {label.lower()} '{name}': {e}")
+
+        registry[name] = client
+        return client
+
     def add_producer(self, name: str, config_overrides: dict[str, Any] | None = None) -> Producer:
         """Create and register an additional named Producer for the active
         app, independent of the default one created by init_app().
@@ -148,19 +181,16 @@ class FlaskConfluentKafka:
         Raises RuntimeError if this app hasn't been init_app()'d yet, if
         `name` is already registered, or if Producer construction fails.
         """
-        app = self._resolve_initialized_app()
-        producers = app.extensions.setdefault("kafka_producers", {})
-
-        if name in producers:
-            raise RuntimeError(f"Producer '{name}' is already registered for this app.")
-
-        producer_config = {**self._build_kafka_config(app), **(config_overrides or {})}
-        try:
-            producer = Producer(producer_config)
-        except KafkaException as e:
-            raise RuntimeError(f"Failed to create Kafka producer '{name}': {e}")
-
-        producers[name] = producer
+        producer = cast(
+            Producer,
+            self._register_client(
+                name,
+                registry_key="kafka_producers",
+                label="Producer",
+                client_cls=Producer,
+                config_overrides=config_overrides,
+            ),
+        )
         atexit.register(_shutdown_kafka_clients, producer, None)
         return producer
 
@@ -184,24 +214,17 @@ class FlaskConfluentKafka:
 
         Raises RuntimeError under the same conditions as add_producer().
         """
-        app = self._resolve_initialized_app()
-        consumers = app.extensions.setdefault("kafka_consumers", {})
-
-        if name in consumers:
-            raise RuntimeError(f"Consumer '{name}' is already registered for this app.")
-
-        consumer_config = {
-            **self._build_kafka_config(app),
-            "group.id": group_id,
-            "auto.offset.reset": "earliest",
-            **(config_overrides or {}),
-        }
-        try:
-            consumer = Consumer(consumer_config)
-        except KafkaException as e:
-            raise RuntimeError(f"Failed to create Kafka consumer '{name}': {e}")
-
-        consumers[name] = consumer
+        consumer = cast(
+            Consumer,
+            self._register_client(
+                name,
+                registry_key="kafka_consumers",
+                label="Consumer",
+                client_cls=Consumer,
+                extra_config={"group.id": group_id, "auto.offset.reset": "earliest"},
+                config_overrides=config_overrides,
+            ),
+        )
         atexit.register(_shutdown_kafka_clients, None, consumer)
         return consumer
 

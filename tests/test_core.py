@@ -370,6 +370,58 @@ def test_init_app_builds_the_consumer_config_with_the_same_sasl_key_omission(app
     assert config["group.id"] == "test-group"
 
 
+def test_register_client_stores_and_returns_the_client(app, mock_kafka_clients):
+    producer_cls, _consumer_cls = mock_kafka_clients
+    kafka = FlaskConfluentKafka(app)
+
+    client = kafka._register_client("orders", registry_key="kafka_producers", label="Producer", client_cls=producer_cls)
+
+    assert client is app.extensions["kafka_producers"]["orders"]
+
+
+def test_register_client_layers_extra_config_and_overrides_over_the_base_config(app, mock_kafka_clients):
+    producer_cls, _consumer_cls = mock_kafka_clients
+    kafka = FlaskConfluentKafka(app)
+
+    kafka._register_client(
+        "orders",
+        registry_key="kafka_producers",
+        label="Producer",
+        client_cls=producer_cls,
+        extra_config={"group.id": "orders-group", "auto.offset.reset": "earliest"},
+        config_overrides={"auto.offset.reset": "latest"},
+    )
+
+    config = producer_cls.call_args.args[0]
+    assert config["bootstrap.servers"] == "localhost:9092"
+    assert config["group.id"] == "orders-group"
+    assert config["auto.offset.reset"] == "latest"
+
+
+def test_register_client_raises_for_a_duplicate_name(app, mock_kafka_clients):
+    producer_cls, _consumer_cls = mock_kafka_clients
+    kafka = FlaskConfluentKafka(app)
+    kafka._register_client("orders", registry_key="kafka_producers", label="Producer", client_cls=producer_cls)
+
+    with pytest.raises(RuntimeError, match="Producer 'orders' is already registered"):
+        kafka._register_client("orders", registry_key="kafka_producers", label="Producer", client_cls=producer_cls)
+
+
+def test_register_client_wraps_a_kafka_exception_with_the_lowercased_label(app, mock_kafka_clients):
+    producer_cls, _consumer_cls = mock_kafka_clients
+    kafka = FlaskConfluentKafka(app)
+    producer_cls.side_effect = KafkaException("boom")
+
+    with pytest.raises(RuntimeError, match="Failed to create Kafka producer 'orders'"):
+        kafka._register_client("orders", registry_key="kafka_producers", label="Producer", client_cls=producer_cls)
+
+
+def test_register_client_raises_when_the_instance_has_no_initialized_app():
+    kafka = FlaskConfluentKafka()
+    with pytest.raises(RuntimeError, match="not initialized"):
+        kafka._register_client("orders", registry_key="kafka_producers", label="Producer", client_cls=MagicMock())
+
+
 def test_add_producer_registers_and_returns_the_producer(app):
     kafka = FlaskConfluentKafka(app)
     producer = kafka.add_producer("orders")
