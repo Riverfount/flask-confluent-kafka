@@ -1,5 +1,10 @@
 # flask-confluent-kafka
 
+[![PyPI](https://img.shields.io/pypi/v/flask-confluent-kafka.svg)](https://pypi.org/project/flask-confluent-kafka/)
+[![Python versions](https://img.shields.io/pypi/pyversions/flask-confluent-kafka.svg)](https://pypi.org/project/flask-confluent-kafka/)
+[![CI](https://github.com/Riverfount/flask-confluent-kafka/actions/workflows/gh.yml/badge.svg)](https://github.com/Riverfount/flask-confluent-kafka/actions/workflows/gh.yml)
+[![License: GPL-3.0](https://img.shields.io/pypi/l/flask-confluent-kafka.svg)](#license)
+
 A simple Flask extension for integrating [confluent-kafka](https://github.com/confluentinc/confluent-kafka-python) producers and consumers into a Flask application.
 
 Full documentation: <https://riverfount.github.io/flask-confluent-kafka/>
@@ -21,6 +26,8 @@ uv add flask-confluent-kafka
 ```
 
 Requires Python >= 3.13.
+
+Also on PyPI: <https://pypi.org/project/flask-confluent-kafka/>
 
 ## Quickstart
 
